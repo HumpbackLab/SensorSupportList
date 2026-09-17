@@ -3,6 +3,9 @@
  * OV9281 CVITEK sensor adapter. Register initialization values are adapted
  * from ArduCAM's GPL-2.0 OV9281 driver:
  * https://github.com/ArduCAM/ov9281_driver/blob/main/ov9281.c
+ * Lane-specific RAW10 values follow ArduCAM/ArduCAM_USB_Camera_Shield,
+ * Config/USB3.0_UC-593 Rev.C/MIPI/OV9281/Channel_A/{1,2}Lane configs.
+ * See the TideSense board's OV9281-lanes.md for source links and validation.
  */
 #include <stdio.h>
 #include <sys/types.h>
@@ -255,7 +258,7 @@ static const struct ov9281_regval ov9281_common_regs[] = {
 	{0x3004, 0x00}, {0x3005, 0x00}, {0x3006, 0x04},
 	{0x3011, 0x0a}, {0x3013, 0x18}, {0x3022, 0x01},
 	{0x3023, 0x00}, {0x302c, 0x00}, {0x302f, 0x00},
-	{0x3030, 0x04}, {0x3039, 0x32}, {0x303a, 0x00},
+	{0x3030, 0x04}, {0x303a, 0x00},
 	{0x303f, 0x01}, {0x3500, 0x00}, {0x3501, 0x2a},
 	{0x3502, 0x90}, {0x3503, 0x08}, {0x3505, 0x8c},
 	{0x3507, 0x03}, {0x3508, 0x00}, {0x3509, 0x10},
@@ -279,8 +282,8 @@ static const struct ov9281_regval ov9281_1280x800_regs[] = {
 	{0x3802, 0x00}, {0x3803, 0x00}, {0x3804, 0x05},
 	{0x3805, 0x0f}, {0x3806, 0x03}, {0x3807, 0x2f},
 	{0x3808, 0x05}, {0x3809, 0x00}, {0x380a, 0x03},
-	{0x380b, 0x20}, {0x380c, 0x02}, {0x380d, 0xd8},
-	{0x380e, 0x07}, {0x380f, 0x1c}, {0x3810, 0x00},
+	{0x380b, 0x20}, {0x380c, 0x05}, {0x380d, 0xb0},
+	{0x380e, 0x03}, {0x380f, 0x8e}, {0x3810, 0x00},
 	{0x3811, 0x08}, {0x3812, 0x00}, {0x3813, 0x08},
 	{0x3814, 0x11}, {0x3815, 0x11}, {0x3820, 0x40},
 	{0x3821, 0x00}, {0x4003, 0x40}, {0x4008, 0x04},
@@ -289,7 +292,7 @@ static const struct ov9281_regval ov9281_1280x800_regs[] = {
 };
 
 static const struct ov9281_regval ov9281_raw10_regs[] = {
-	{0x030d, 0x50}, {0x3662, 0x05}, {OV9281_REG_END, 0x00},
+	{0x030d, 0x50}, {OV9281_REG_END, 0x00},
 };
 
 static int ov9281_write_array(VI_PIPE ViPipe, const struct ov9281_regval *regs)
@@ -305,6 +308,18 @@ static int ov9281_write_array(VI_PIPE ViPipe, const struct ov9281_regval *regs)
 
 static CVI_S32 ov9281_linear_800p60_init(VI_PIPE ViPipe)
 {
+	int lanes = ov9281_get_lane_num(ViPipe);
+	int raw10_ctrl;
+
+	if (lanes != 1 && lanes != 2) {
+		CVI_TRACE_SNS(CVI_DBG_ERR, "OV9281 unsupported lane count %d on pipe %d\n", lanes, ViPipe);
+		return CVI_FAILURE;
+	}
+	/* ArduCAM USB Camera Shield OV9281 Channel_A RAW10 configs:
+	 * 0x3662 = 0x01 for 1 lane, 0x05 for 2 lanes; 0x3039 stays 0x32.
+	 * Changing 0x3039 alone produces invalid CSI packets on this sensor.
+	 */
+	raw10_ctrl = (lanes == 1) ? 0x01 : 0x05;
 	if (ov9281_write_register(ViPipe, 0x0103, 0x01) != CVI_SUCCESS)
 		return CVI_FAILURE;
 	delay_ms(5);
@@ -313,6 +328,14 @@ static CVI_S32 ov9281_linear_800p60_init(VI_PIPE ViPipe)
 	    ov9281_write_array(ViPipe, ov9281_1280x800_regs) != CVI_SUCCESS ||
 	    ov9281_write_array(ViPipe, ov9281_raw10_regs) != CVI_SUCCESS) {
 		CVI_TRACE_SNS(CVI_DBG_ERR, "OV9281 register initialization failed on pipe %d\n", ViPipe);
+		return CVI_FAILURE;
+	}
+	/* Match the transmitter to this pipe's receiver before starting the stream. */
+	if (ov9281_write_register(ViPipe, 0x3039, 0x32) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x3662, raw10_ctrl) != CVI_SUCCESS ||
+	    ov9281_read_register(ViPipe, 0x3039) != 0x32 ||
+	    ov9281_read_register(ViPipe, 0x3662) != raw10_ctrl) {
+		CVI_TRACE_SNS(CVI_DBG_ERR, "OV9281 MIPI lane configuration failed on pipe %d\n", ViPipe);
 		return CVI_FAILURE;
 	}
 	/* 0x3823 enables external VSYNC input when hw_sync is set by CVITEK. */
@@ -331,6 +354,7 @@ static CVI_S32 ov9281_linear_800p60_init(VI_PIPE ViPipe)
 	if (ov9281_write_register(ViPipe, 0x0100, 0x01) != CVI_SUCCESS)
 		return CVI_FAILURE;
 	delay_ms(100);
-	printf("ViPipe:%d, OV9281 1280x800 RAW10 60fps init OK\n", ViPipe);
+	printf("ViPipe:%d, OV9281 addr=0x%02x %d-lane 1280x800 RAW10 60fps init OK\n",
+		ViPipe, ov9281_i2c_addr[ViPipe], lanes);
 	return CVI_SUCCESS;
 }

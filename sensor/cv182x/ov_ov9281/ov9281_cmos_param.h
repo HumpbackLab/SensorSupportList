@@ -32,12 +32,12 @@ static const OV9281_MODE_S g_astOv9281_mode[OV9281_MODE_NUM] = {
 			},
 		},
 		.f32MaxFps = 60,
-		.f32MinFps = 3.33, /* 1820 * 60 / 0x7fff */
+		.f32MinFps = 1.67, /* 910 * 60 / 0x7fff */
 		.u32HtsDef = 1456, /* 0x05b0 */
-		.u32VtsDef = 1820, /* 0x071c: 60 fps from the 120 fps mode timing */
+		.u32VtsDef = 910, /* 0x038e; double HTS for 60 fps on either lane count */
 		.stExp[0] = {
 			.u16Min = 4,
-			.u16Max = 1820 - 25,
+			.u16Max = 910 - 25,
 			.u16Def = 100,
 			.u16Step = 1,
 		},
@@ -82,7 +82,7 @@ static struct combo_dev_attr_s g_astOv9281_RxAttr[VI_MAX_PIPE_NUM] = {
 	.mac_clk = RX_MAC_CLK_200M,
 	.mipi_attr = {
 		.raw_data_type = RAW_DATA_10BIT,
-		.lane_id = {1, 0, -1, -1, -1},
+		.lane_id = {0, 1, 2, -1, -1}, /* CLK, D0, D1; board may select one data lane */
 		.pn_swap = {0, 0, 0, 0, 0},
 		.wdr_mode = CVI_MIPI_WDR_MODE_NONE,
 	},

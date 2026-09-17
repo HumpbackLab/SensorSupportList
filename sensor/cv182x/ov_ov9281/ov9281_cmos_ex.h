@@ -69,6 +69,7 @@ extern int  ov9281_write_register(VI_PIPE ViPipe, int addr, int data);
 extern int  ov9281_read_register(VI_PIPE ViPipe, int addr);
 extern void ov9281_mirror_flip(VI_PIPE ViPipe, ISP_SNS_MIRRORFLIP_TYPE_E eSnsMirrorFlip);
 extern int ov9281_probe(VI_PIPE ViPipe);
+extern int ov9281_get_lane_num(VI_PIPE ViPipe);
 
 #ifdef __cplusplus
 #if __cplusplus

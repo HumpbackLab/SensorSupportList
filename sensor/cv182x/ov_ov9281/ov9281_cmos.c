@@ -22,8 +22,8 @@
 #define DIV_0_TO_1(a)   ((0 == (a)) ? 1 : (a))
 #define DIV_0_TO_1_FLOAT(a) ((((a) < 1E-10) && ((a) > -1E-10)) ? 1 : (a))
 #define OV9281_ID 9281
-#define OV9281_I2C_ADDR_1 0x60
-#define OV9281_I2C_ADDR_2 0x70
+#define OV9281_I2C_ADDR_1 0x10
+#define OV9281_I2C_ADDR_2 0x60
 #define OV9281_I2C_ADDR_IS_VALID(addr) ((addr) >= 0x03 && (addr) <= 0x77)
 
 /****************************************************************************
@@ -615,6 +615,19 @@ static CVI_VOID sensor_global_init(VI_PIPE ViPipe)
 	memset(&pstSnsState->astSyncInfo[1], 0, sizeof(ISP_SNS_SYNC_INFO_S));
 }
 
+/* CVITEK lane_id[0] is the clock; subsequent entries are data lanes. */
+int ov9281_get_lane_num(VI_PIPE ViPipe)
+{
+	int i, lanes = 0;
+
+	if (ViPipe < 0 || ViPipe >= VI_MAX_PIPE_NUM)
+		return CVI_FAILURE;
+	for (i = 1; i < MIPI_LANE_NUM + 1; i++)
+		if (g_astOv9281_RxAttr[ViPipe].mipi_attr.lane_id[i] >= 0)
+			lanes++;
+	return lanes;
+}
+
 static CVI_S32 sensor_rx_attr(VI_PIPE ViPipe, SNS_COMBO_DEV_ATTR_S *pstRxAttr)
 {
 	ISP_SNS_STATE_S *pstSnsState = CVI_NULL;
@@ -641,6 +654,21 @@ static CVI_S32 sensor_patch_rx_attr(RX_INIT_ATTR_S *pstRxInitAttr)
 	int i;
 
 	CMOS_CHECK_POINTER(pstRxInitAttr);
+	/* OV9281 supports one or two contiguous data lanes, after the clock. */
+	if (pstRxInitAttr->as16LaneId[0] < 0 ||
+	    pstRxInitAttr->as16LaneId[1] < 0 ||
+	    pstRxInitAttr->as16LaneId[3] >= 0 ||
+	    pstRxInitAttr->as16LaneId[4] >= 0)
+		return CVI_FAILURE;
+	for (i = 0; i < 3; i++) {
+		int j;
+
+		if (pstRxInitAttr->as16LaneId[i] < 0)
+			continue;
+		for (j = 0; j < i; j++)
+			if (pstRxInitAttr->as16LaneId[i] == pstRxInitAttr->as16LaneId[j])
+				return CVI_FAILURE;
+	}
 	/* This callback runs before SetBusInfo and carries MipiDev instead. */
 	ViPipe = pstRxInitAttr->MipiDev;
 	if (ViPipe >= VI_MAX_PIPE_NUM)
