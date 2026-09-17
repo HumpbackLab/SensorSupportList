@@ -9,7 +9,11 @@ ifneq ($(BUILD_PATH), )
 include ../../sensor.mk
 endif
 #
+ifneq ($(strip $(sensor-y)),)
 SRCS = $(shell find $(sensor-y) -name '*.c')
+else
+SRCS =
+endif
 OBJS = $(SRCS:.c=.o) $(SENSOR_LIST_INC)/sensor_list.o
 
 INCS = -I$(MW_INC) -I$(ISP_INC) -I$(KERNEL_INC) -I$(SENSOR_LIST_INC)
