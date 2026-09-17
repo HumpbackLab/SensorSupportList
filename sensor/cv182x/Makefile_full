@@ -11,6 +11,9 @@ endif
 #
 SRCS = $(shell find $(sensor-y) -name '*.c')
 OBJS = $(SRCS:.c=.o) $(SENSOR_LIST_INC)/sensor_list.o
+
+INCS = -I$(MW_INC) -I$(ISP_INC) -I$(KERNEL_INC) -I$(SENSOR_LIST_INC)
+EXTRA_CFLAGS = $(INCS) $(PROJ_CFLAGS)
 #
 TARGET_A = $(MW_LIB)/libsns_full.a
 TARGET_SO = $(MW_LIB)/libsns_full.so
@@ -19,6 +22,10 @@ EXTRA_LDFLAGS =
 
 .PHONY : clean all
 all : $(TARGET_A) $(TARGET_SO)
+
+$(OBJS): %.o: %.c
+	@$(CC) $(DEPFLAGS) $(CFLAGS) $(EXTRA_CFLAGS) -c $< -o $@
+	@echo [$(notdir $(CC))] $(notdir $@)
 
 $(TARGET_A): $(OBJS)
 	@$(AR) $(ARFLAGS) $@ $(OBJS)
