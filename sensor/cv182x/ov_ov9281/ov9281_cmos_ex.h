@@ -12,6 +12,10 @@ extern "C" {
 #include "cvi_sns_ctrl.h"
 
 
+/* External snapshot budget validated at 20Hz on TideSense. */
+#define OV9281_FSIN_VTS 910
+#define OV9281_FSIN_MAX_EXPOSURE 546 /* ~10ms, leaving wake/readout margin */
+
 enum ov9281_linear_regs_e {
 	LINEAR_EXP_0 = 0,
 	LINEAR_EXP_1,

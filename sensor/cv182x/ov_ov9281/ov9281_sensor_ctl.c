@@ -148,14 +148,18 @@ static void delay_ms(int ms)
 
 void ov9281_standby(VI_PIPE ViPipe)
 {
+	/* 0x0100=0 arms snapshot mode; clear wake enable to really stop it. */
+	ov9281_write_register(ViPipe, 0x3030, 0x00);
 	ov9281_write_register(ViPipe, 0x0100, 0x00); /* standby */
 }
 
 void ov9281_restart(VI_PIPE ViPipe)
 {
-	ov9281_write_register(ViPipe, 0x0100, 0x00);
+	ov9281_standby(ViPipe);
 	delay_ms(20);
-	ov9281_write_register(ViPipe, 0x0100, 0x01); /* restart */
+	ov9281_write_register(ViPipe, 0x3030, 0x04);
+	ov9281_write_register(ViPipe, 0x0100,
+		g_au16Ov9281_HwSync[ViPipe] ? 0x00 : 0x01);
 }
 
 void ov9281_default_reg_init(VI_PIPE ViPipe)
@@ -406,33 +410,45 @@ static CVI_S32 ov9281_linear_init(VI_PIPE ViPipe)
 		CVI_TRACE_SNS(CVI_DBG_ERR, "OV9281 MIPI lane configuration failed on pipe %d\n", ViPipe);
 		return CVI_FAILURE;
 	}
-	/* 0x3823 enables external VSYNC input when hw_sync is set by CVITEK. */
-	if (ov9281_write_register(ViPipe, 0x3823,
-		g_au16Ov9281_HwSync[ViPipe] ? 0x30 : 0x00) != CVI_SUCCESS)
-		return CVI_FAILURE;
-	if (g_au16Ov9281_HwSync[ViPipe] &&
-	    (ov9281_write_register(ViPipe, 0x3824, 0x00) != CVI_SUCCESS ||
-	     ov9281_write_register(ViPipe, 0x3825, 0x00) != CVI_SUCCESS ||
-	     ov9281_write_register(ViPipe, 0x3826, 0x00) != CVI_SUCCESS ||
-	     ov9281_write_register(ViPipe, 0x3827, 0x00) != CVI_SUCCESS))
+	/* Keep the common table's pad-input configuration; select FSIN as source.
+	 * External snapshot is distinct from continuous-stream frame sync.
+	 * Datasheet 4.8.3: one rising edge wakes the sensor for 0x303f frames. */
+	if (ov9281_write_register(ViPipe, 0x3666, 0x00) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x3823, 0x00) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x3030, 0x04) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x303f, 0x01) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x302c, 0x00) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x302d, 0x00) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x302e, 0x00) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x302f, 0x7f) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x4f00,
+		g_au16Ov9281_HwSync[ViPipe] ? 0x01 : 0x00) != CVI_SUCCESS)
 		return CVI_FAILURE;
 
 	/* Program the selected frame period even before ISP sync registers exist.
-	 * The 20 fps mode keeps line timing and triples VTS from 910 to 2730. */
-	CVI_U32 vts = g_pastOv9281[ViPipe]->u32FLStd;
+	 * Free-running 20fps triples VTS; FSIN instead controls the frame cadence. */
+	CVI_U32 vts = g_au16Ov9281_HwSync[ViPipe] ? OV9281_FSIN_VTS : g_pastOv9281[ViPipe]->u32FLStd;
 
 	if (ov9281_write_register(ViPipe, 0x380e, (vts >> 8) & 0xff) != CVI_SUCCESS ||
 	    ov9281_write_register(ViPipe, 0x380f, vts & 0xff) != CVI_SUCCESS)
 		return CVI_FAILURE;
+	/* The common table starts at 681 lines; cap even the first triggered shot. */
+	if (g_au16Ov9281_HwSync[ViPipe] &&
+	    (ov9281_write_register(ViPipe, 0x3500, 0) != CVI_SUCCESS ||
+	     ov9281_write_register(ViPipe, 0x3501, OV9281_FSIN_MAX_EXPOSURE >> 4) != CVI_SUCCESS ||
+	     ov9281_write_register(ViPipe, 0x3502, (OV9281_FSIN_MAX_EXPOSURE & 0xf) << 4) != CVI_SUCCESS))
+		return CVI_FAILURE;
 	/* Apply ISP-managed exposure, gain, and VTS before streaming. */
 	ov9281_default_reg_init(ViPipe);
-	if (ov9281_write_register(ViPipe, 0x0100, 0x01) != CVI_SUCCESS)
+	if (ov9281_write_register(ViPipe, 0x0100,
+		g_au16Ov9281_HwSync[ViPipe] ? 0x00 : 0x01) != CVI_SUCCESS)
 		return CVI_FAILURE;
 	delay_ms(100);
-	printf("ViPipe:%d, OV9281 addr=0x%02x %d-lane %s RAW10 %dfps init OK\n",
+	printf("ViPipe:%d, OV9281 addr=0x%02x %d-lane %s RAW10 %dfps %s init OK\n",
 		ViPipe, ov9281_i2c_addr[ViPipe], lanes,
 		(mode == OV9281_MODE_640X400P60 || mode == OV9281_MODE_640X400P20) ? "640x400" :
 		mode == OV9281_MODE_640X480P60 ? "640x480" : "1280x800",
-		mode == OV9281_MODE_640X400P20 ? 20 : 60);
+		mode == OV9281_MODE_640X400P20 ? 20 : 60,
+		g_au16Ov9281_HwSync[ViPipe] ? "FSIN single-frame trigger armed" : "free-running");
 	return CVI_SUCCESS;
 }

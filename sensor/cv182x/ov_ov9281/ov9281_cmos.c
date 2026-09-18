@@ -149,8 +149,10 @@ static CVI_S32 cmos_get_ae_default(VI_PIPE ViPipe, AE_SENSOR_DEFAULT_S *pstAeSns
 		pstAeSnsDft->u32InitExposure = g_au32InitExposure[ViPipe] ? g_au32InitExposure[ViPipe] : 76151;
 
 		pstAeSnsDft->u32MaxIntTime = pstMode->stExp[0].u16Max;
+		if (g_au16Ov9281_HwSync[ViPipe])
+			pstAeSnsDft->u32MaxIntTime = OV9281_FSIN_MAX_EXPOSURE;
 		pstAeSnsDft->u32MinIntTime = pstMode->stExp[0].u16Min;
-		pstAeSnsDft->u32MaxIntTimeTarget = OV9281_FULL_LINES_MAX - 25;
+		pstAeSnsDft->u32MaxIntTimeTarget = g_au16Ov9281_HwSync[ViPipe] ? OV9281_FSIN_MAX_EXPOSURE : OV9281_FULL_LINES_MAX - 25;
 		pstAeSnsDft->u32MinIntTimeTarget = 4;
 		break;
 	}
@@ -197,6 +199,11 @@ static CVI_S32 cmos_fps_set(VI_PIPE ViPipe, CVI_FLOAT f32Fps, AE_SENSOR_DEFAULT_
 	}
 
 	pstSnsState->u32FLStd = u32VMAX;
+	/* FSIN controls cadence. Keep readout short enough for wake + exposure +
+	 * readout within 50ms; a 2730-line snapshot otherwise misses every other
+	 * 20Hz pulse. AE retains the nominal frame interval and physical row time. */
+	if (g_au16Ov9281_HwSync[ViPipe])
+		u32VMAX = OV9281_FSIN_VTS;
 
 	if (pstSnsState->enWDRMode == WDR_MODE_NONE) {
 		pstSnsRegsInfo->astI2cData[LINEAR_VTS_0].u32Data = ((u32VMAX & 0xFF00) >> 8);
@@ -209,7 +216,7 @@ static CVI_S32 cmos_fps_set(VI_PIPE ViPipe, CVI_FLOAT f32Fps, AE_SENSOR_DEFAULT_
 	pstAeSnsDft->f32Fps = f32Fps;
 	pstAeSnsDft->u32LinesPer500ms = pstSnsState->u32FLStd * f32Fps / 2;
 	pstAeSnsDft->u32FullLinesStd = pstSnsState->u32FLStd;
-	pstAeSnsDft->u32MaxIntTime = pstSnsState->u32FLStd - 25;
+	pstAeSnsDft->u32MaxIntTime = g_au16Ov9281_HwSync[ViPipe] ? OV9281_FSIN_MAX_EXPOSURE : pstSnsState->u32FLStd - 25;
 	pstSnsState->au32FL[0] = pstSnsState->u32FLStd;
 	pstAeSnsDft->u32FullLines = pstSnsState->au32FL[0];
 	pstAeSnsDft->u32HmaxTimes = (1000000) /
@@ -237,7 +244,7 @@ static CVI_S32 cmos_inttime_update(VI_PIPE ViPipe, CVI_U32 *u32IntTime)
 		 * step : 1
 		 */
 		u32MinTime = 4;
-		u32MaxTime = pstSnsState->au32FL[0] - 25;
+		u32MaxTime = g_au16Ov9281_HwSync[ViPipe] ? OV9281_FSIN_MAX_EXPOSURE : pstSnsState->au32FL[0] - 25;
 		u32TmpIntTime = (u32IntTime[0] > u32MaxTime) ? u32MaxTime : u32IntTime[0];
 		u32TmpIntTime = (u32TmpIntTime < u32MinTime) ? u32MinTime : u32TmpIntTime;
 
