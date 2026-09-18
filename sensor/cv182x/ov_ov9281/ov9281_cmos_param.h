@@ -136,6 +136,47 @@ static const OV9281_MODE_S g_astOv9281_mode[OV9281_MODE_NUM] = {
 			.u16Step = 1,
 		},
 	},
+	[OV9281_MODE_640X400P20] = {
+		.name = "640X400P20",
+		.astImg[0] = {
+			.stSnsSize = {
+				.u32Width = 640,
+				.u32Height = 400,
+			},
+			.stWndRect = {
+				.s32X = 0,
+				.s32Y = 0,
+				.u32Width = 640,
+				.u32Height = 400,
+			},
+			.stMaxSize = {
+				.u32Width = 640,
+				.u32Height = 400,
+			},
+		},
+		.f32MaxFps = 20,
+		.f32MinFps = 1.67, /* 2730 * 20 / 0x7fff */
+		.u32HtsDef = 1456, /* 0x05b0 */
+		.u32VtsDef = 2730, /* 0x0aaa; three times the 60 fps frame period */
+		.stExp[0] = {
+			.u16Min = 4,
+			.u16Max = 2730 - 25,
+			.u16Def = 100,
+			.u16Step = 1,
+		},
+		.stAgain[0] = {
+			.u16Min = 1024,
+			.u16Max = 15872,
+			.u16Def = 1024,
+			.u16Step = 1,
+		},
+		.stDgain[0] = {
+			.u16Min = 1024,
+			.u16Max = 1024,
+			.u16Def = 1024,
+			.u16Step = 1,
+		},
+	},
 };
 
 static ISP_CMOS_BLACK_LEVEL_S g_stIspBlcCalibratio = {

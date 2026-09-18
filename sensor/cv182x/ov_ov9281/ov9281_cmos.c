@@ -182,6 +182,7 @@ static CVI_S32 cmos_fps_set(VI_PIPE ViPipe, CVI_FLOAT f32Fps, AE_SENSOR_DEFAULT_
 	case OV9281_MODE_1280X800P60:
 	case OV9281_MODE_640X480P60:
 	case OV9281_MODE_640X400P60:
+	case OV9281_MODE_640X400P20:
 		if ((f32Fps <= f32MaxFps) && (f32Fps >= f32MinFps)) {
 			u32VMAX = u32Vts * f32MaxFps / DIV_0_TO_1_FLOAT(f32Fps);
 		} else {
@@ -557,7 +558,8 @@ static CVI_S32 cmos_set_image_mode(VI_PIPE ViPipe, ISP_CMOS_SENSOR_IMAGE_MODE_S 
 			if (pstSensorImageMode->u16Width == 640 && pstSensorImageMode->u16Height == 480)
 				u8SensorImageMode = OV9281_MODE_640X480P60;
 			else if (pstSensorImageMode->u16Width == 640 && pstSensorImageMode->u16Height == 400)
-				u8SensorImageMode = OV9281_MODE_640X400P60;
+				u8SensorImageMode = pstSensorImageMode->f32Fps <= 20 ?
+					OV9281_MODE_640X400P20 : OV9281_MODE_640X400P60;
 			else if (OV9281_RES_IS_800P(pstSensorImageMode->u16Width, pstSensorImageMode->u16Height))
 				u8SensorImageMode = OV9281_MODE_1280X800P60;
 			else {
@@ -615,7 +617,7 @@ static CVI_VOID sensor_global_init(VI_PIPE ViPipe)
 
 	pstSnsState->bInit = CVI_FALSE;
 	pstSnsState->bSyncInit = CVI_FALSE;
-	pstSnsState->u8ImgMode = OV9281_MODE_640X400P60;
+	pstSnsState->u8ImgMode = OV9281_MODE_640X400P20;
 	pstSnsState->enWDRMode = WDR_MODE_NONE;
 	pstSnsState->u32FLStd  = g_astOv9281_mode[pstSnsState->u8ImgMode].u32VtsDef;
 	pstSnsState->au32FL[0] = g_astOv9281_mode[pstSnsState->u8ImgMode].u32VtsDef;

@@ -22,7 +22,7 @@
 #include "cvi_sns_ctrl.h"
 #include "ov9281_cmos_ex.h"
 
-static CVI_S32 ov9281_linear_60_init(VI_PIPE ViPipe);
+static CVI_S32 ov9281_linear_init(VI_PIPE ViPipe);
 
 const CVI_U32 ov9281_addr_byte = 2;
 const CVI_U32 ov9281_data_byte = 1;
@@ -236,7 +236,7 @@ void ov9281_init(VI_PIPE ViPipe)
 	if (ov9281_i2c_init(ViPipe) != CVI_SUCCESS || g_pastOv9281[ViPipe] == CVI_NULL)
 		return;
 
-	if (ov9281_linear_60_init(ViPipe) == CVI_SUCCESS)
+	if (ov9281_linear_init(ViPipe) == CVI_SUCCESS)
 		g_pastOv9281[ViPipe]->bInit = CVI_TRUE;
 }
 
@@ -363,14 +363,14 @@ static int ov9281_write_array(VI_PIPE ViPipe, const struct ov9281_regval *regs)
 	return CVI_SUCCESS;
 }
 
-static CVI_S32 ov9281_linear_60_init(VI_PIPE ViPipe)
+static CVI_S32 ov9281_linear_init(VI_PIPE ViPipe)
 {
 	int lanes = ov9281_get_lane_num(ViPipe);
 	int raw10_ctrl;
 	CVI_U8 mode = g_pastOv9281[ViPipe]->u8ImgMode;
 	const struct ov9281_regval *mode_regs;
 
-	if (mode == OV9281_MODE_640X400P60)
+	if (mode == OV9281_MODE_640X400P60 || mode == OV9281_MODE_640X400P20)
 		mode_regs = ov9281_640x400_regs;
 	else if (mode == OV9281_MODE_640X480P60)
 		mode_regs = ov9281_640x480_regs;
@@ -417,14 +417,22 @@ static CVI_S32 ov9281_linear_60_init(VI_PIPE ViPipe)
 	     ov9281_write_register(ViPipe, 0x3827, 0x00) != CVI_SUCCESS))
 		return CVI_FAILURE;
 
-	/* Apply ISP-managed exposure, gain, and 60 fps VTS before streaming. */
+	/* Program the selected frame period even before ISP sync registers exist.
+	 * The 20 fps mode keeps line timing and triples VTS from 910 to 2730. */
+	CVI_U32 vts = g_pastOv9281[ViPipe]->u32FLStd;
+
+	if (ov9281_write_register(ViPipe, 0x380e, (vts >> 8) & 0xff) != CVI_SUCCESS ||
+	    ov9281_write_register(ViPipe, 0x380f, vts & 0xff) != CVI_SUCCESS)
+		return CVI_FAILURE;
+	/* Apply ISP-managed exposure, gain, and VTS before streaming. */
 	ov9281_default_reg_init(ViPipe);
 	if (ov9281_write_register(ViPipe, 0x0100, 0x01) != CVI_SUCCESS)
 		return CVI_FAILURE;
 	delay_ms(100);
-	printf("ViPipe:%d, OV9281 addr=0x%02x %d-lane %s RAW10 60fps init OK\n",
+	printf("ViPipe:%d, OV9281 addr=0x%02x %d-lane %s RAW10 %dfps init OK\n",
 		ViPipe, ov9281_i2c_addr[ViPipe], lanes,
-		mode == OV9281_MODE_640X400P60 ? "640x400" :
-		mode == OV9281_MODE_640X480P60 ? "640x480" : "1280x800");
+		(mode == OV9281_MODE_640X400P60 || mode == OV9281_MODE_640X400P20) ? "640x400" :
+		mode == OV9281_MODE_640X480P60 ? "640x480" : "1280x800",
+		mode == OV9281_MODE_640X400P20 ? 20 : 60);
 	return CVI_SUCCESS;
 }
