@@ -22,7 +22,7 @@
 #include "cvi_sns_ctrl.h"
 #include "ov9281_cmos_ex.h"
 
-static CVI_S32 ov9281_linear_800p60_init(VI_PIPE ViPipe);
+static CVI_S32 ov9281_linear_60_init(VI_PIPE ViPipe);
 
 const CVI_U32 ov9281_addr_byte = 2;
 const CVI_U32 ov9281_data_byte = 1;
@@ -236,13 +236,17 @@ void ov9281_init(VI_PIPE ViPipe)
 	if (ov9281_i2c_init(ViPipe) != CVI_SUCCESS || g_pastOv9281[ViPipe] == CVI_NULL)
 		return;
 
-	if (ov9281_linear_800p60_init(ViPipe) == CVI_SUCCESS)
+	if (ov9281_linear_60_init(ViPipe) == CVI_SUCCESS)
 		g_pastOv9281[ViPipe]->bInit = CVI_TRUE;
 }
 
 void ov9281_exit(VI_PIPE ViPipe)
 {
+	/* Stop CSI before closing I2C so a later mode change can reconfigure RX. */
+	ov9281_standby(ViPipe);
 	ov9281_i2c_exit(ViPipe);
+	if (g_pastOv9281[ViPipe] != CVI_NULL)
+		g_pastOv9281[ViPipe]->bInit = CVI_FALSE;
 }
 
 /* Register values follow the 1280x800 RAW10 mode in the cited driver. */
@@ -291,6 +295,59 @@ static const struct ov9281_regval ov9281_1280x800_regs[] = {
 	{0x4507, 0x00}, {0x4509, 0x00}, {OV9281_REG_END, 0x00},
 };
 
+/* Native centered crop: (320,160), no binning; retain 1456/910 timing.
+ * OV9281 datasheet sections 4.2 and 7.8; eight border pixels per side. */
+static const struct ov9281_regval ov9281_640x480_regs[] = {
+	{0x3778, 0x00}, {0x3800, 0x01}, {0x3801, 0x40},
+	{0x3802, 0x00}, {0x3803, 0xa0}, {0x3804, 0x03},
+	{0x3805, 0xcf}, {0x3806, 0x02}, {0x3807, 0x8f},
+	{0x3808, 0x02}, {0x3809, 0x80}, {0x380a, 0x01},
+	{0x380b, 0xe0}, {0x380c, 0x05}, {0x380d, 0xb0},
+	{0x380e, 0x03}, {0x380f, 0x8e}, {0x3810, 0x00},
+	{0x3811, 0x08}, {0x3812, 0x00}, {0x3813, 0x08},
+	{0x3814, 0x11}, {0x3815, 0x11}, {0x3820, 0x40},
+	{0x3821, 0x00}, {0x4003, 0x40}, {0x4008, 0x04},
+	{0x4009, 0x0b}, {0x400c, 0x00}, {0x400d, 0x07},
+	{0x4507, 0x00}, {0x4509, 0x00}, {OV9281_REG_END, 0x00},
+};
+
+/* Full-field sub-sampling from the cited ArduCAM driver, with the same
+ * 60 fps HTS/VTS as the other modes for both one- and two-lane boards. */
+static const struct ov9281_regval ov9281_640x400_regs[] = {
+	{0x3778, 0x10},
+	{0x3800, 0x00},
+	{0x3801, 0x00},
+	{0x3802, 0x00},
+	{0x3803, 0x00},
+	{0x3804, 0x05},
+	{0x3805, 0x0f},
+	{0x3806, 0x03},
+	{0x3807, 0x2f},
+	{0x3808, 0x02},
+	{0x3809, 0x80},
+	{0x380a, 0x01},
+	{0x380b, 0x90},
+	{0x380c, 0x05},
+	{0x380d, 0xb0},
+	{0x380e, 0x03},
+	{0x380f, 0x8e},
+	{0x3810, 0x00},
+	{0x3811, 0x04},
+	{0x3812, 0x00},
+	{0x3813, 0x04},
+	{0x3814, 0x31},
+	{0x3815, 0x22},
+	{0x3820, 0x60},
+	{0x3821, 0x01},
+	{0x4008, 0x02},
+	{0x4009, 0x05},
+	{0x400c, 0x00},
+	{0x400d, 0x03},
+	{0x4507, 0x03},
+	{0x4509, 0x80},
+	{OV9281_REG_END, 0x00},
+};
+
 static const struct ov9281_regval ov9281_raw10_regs[] = {
 	{0x030d, 0x50}, {OV9281_REG_END, 0x00},
 };
@@ -306,10 +363,21 @@ static int ov9281_write_array(VI_PIPE ViPipe, const struct ov9281_regval *regs)
 	return CVI_SUCCESS;
 }
 
-static CVI_S32 ov9281_linear_800p60_init(VI_PIPE ViPipe)
+static CVI_S32 ov9281_linear_60_init(VI_PIPE ViPipe)
 {
 	int lanes = ov9281_get_lane_num(ViPipe);
 	int raw10_ctrl;
+	CVI_U8 mode = g_pastOv9281[ViPipe]->u8ImgMode;
+	const struct ov9281_regval *mode_regs;
+
+	if (mode == OV9281_MODE_640X400P60)
+		mode_regs = ov9281_640x400_regs;
+	else if (mode == OV9281_MODE_640X480P60)
+		mode_regs = ov9281_640x480_regs;
+	else if (mode == OV9281_MODE_1280X800P60)
+		mode_regs = ov9281_1280x800_regs;
+	else
+		return CVI_FAILURE;
 
 	if (lanes != 1 && lanes != 2) {
 		CVI_TRACE_SNS(CVI_DBG_ERR, "OV9281 unsupported lane count %d on pipe %d\n", lanes, ViPipe);
@@ -325,7 +393,7 @@ static CVI_S32 ov9281_linear_800p60_init(VI_PIPE ViPipe)
 	delay_ms(5);
 	if (ov9281_write_register(ViPipe, 0x0100, 0x00) != CVI_SUCCESS ||
 	    ov9281_write_array(ViPipe, ov9281_common_regs) != CVI_SUCCESS ||
-	    ov9281_write_array(ViPipe, ov9281_1280x800_regs) != CVI_SUCCESS ||
+	    ov9281_write_array(ViPipe, mode_regs) != CVI_SUCCESS ||
 	    ov9281_write_array(ViPipe, ov9281_raw10_regs) != CVI_SUCCESS) {
 		CVI_TRACE_SNS(CVI_DBG_ERR, "OV9281 register initialization failed on pipe %d\n", ViPipe);
 		return CVI_FAILURE;
@@ -354,7 +422,9 @@ static CVI_S32 ov9281_linear_800p60_init(VI_PIPE ViPipe)
 	if (ov9281_write_register(ViPipe, 0x0100, 0x01) != CVI_SUCCESS)
 		return CVI_FAILURE;
 	delay_ms(100);
-	printf("ViPipe:%d, OV9281 addr=0x%02x %d-lane 1280x800 RAW10 60fps init OK\n",
-		ViPipe, ov9281_i2c_addr[ViPipe], lanes);
+	printf("ViPipe:%d, OV9281 addr=0x%02x %d-lane %s RAW10 60fps init OK\n",
+		ViPipe, ov9281_i2c_addr[ViPipe], lanes,
+		mode == OV9281_MODE_640X400P60 ? "640x400" :
+		mode == OV9281_MODE_640X480P60 ? "640x480" : "1280x800");
 	return CVI_SUCCESS;
 }
