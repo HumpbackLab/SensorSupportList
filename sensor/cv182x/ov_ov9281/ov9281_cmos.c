@@ -321,7 +321,11 @@ static CVI_S32 cmos_gains_update(VI_PIPE ViPipe, CVI_U32 *pu32Again, CVI_U32 *pu
 	CMOS_CHECK_POINTER(pu32Dgain);
 	pstSnsRegsInfo = &pstSnsState->astSyncInfo[0].snsCfg;
 
-	u32Again = pu32Again[0];
+	/* AE passes the table index returned by cmos_again_calc_table, not Q10.
+	 * Treating the index as Q10 clamps every supported gain to 1x. */
+	if (pu32Again[0] >= again_table_size)
+		return CVI_FAILURE;
+	u32Again = Again_table[pu32Again[0]];
 
 	if (pstSnsState->enWDRMode == WDR_MODE_NONE) {
 		/* linear mode */
